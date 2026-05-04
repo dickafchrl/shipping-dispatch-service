@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shipping-service-deployment
+  labels:
+    app: shipping-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shipping-service
+  template:
+    metadata:
+      labels:
+        app: shipping-service
+    spec:
+      containers:
+      - name: shipping-service
+        image: shipping-service:local
+        # WAJIB "Never" atau "IfNotPresent" agar K8s tidak mencari image ini di internet,
+        # melainkan memakai image lokal di laptop Anda.
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
