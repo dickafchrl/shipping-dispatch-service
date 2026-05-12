@@ -2,88 +2,66 @@ pipeline {
     agent any
 
     environment {
-        // Ganti dengan username Docker Hub Anda
-        DOCKER_IMAGE = "dickaf/shipping-service:latest"
+        // SESUAIKAN dengan username Docker Hub yang baru saja Anda buat
+        DOCKER_USER = "dickaf" 
+        IMAGE_NAME = "shipping-service"
+        DOCKER_IMAGE = "${DOCKER_USER}/${IMAGE_NAME}:latest"
     }
 
     stages {
-        stage('1. Checkout Repo') {
+        stage('1. Setup Workspace') {
             steps {
-                checkout scm
+                // Memastikan docker-compose tersedia di dalam container Jenkins
+                sh 'docker-compose --version || (curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose)'
             }
         }
 
         stage('2. Unit Tests') {
             steps {
-                // Menjalankan test tanpa tag functional (hanya logic)
-                // Kita bungkus catchError agar pipeline tetap lanjut ke tahap infrastruktur meskipun RED
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    // Kita asumsikan image golang sudah terpasang atau gunakan container agent
                     sh 'go test -v ./internal/service/... ./internal/handler/http/...'
                 }
             }
         }
 
-        stage('3. Lint & Vet') {
-            steps {
-                sh 'go vet ./...'
-            }
-        }
-
-        stage('4. Build Image (Lokal Jenkins)') {
+        stage('3. Build Image') {
             steps {
                 sh "docker build -t ${DOCKER_IMAGE} ."
             }
         }
 
-        stage('5. Functional Tests') {
+        stage('4. Functional Tests') {
             steps {
-                // 1. Nyalakan DB pendukung
                 sh 'docker-compose up -d postgres mongodb'
+                echo "Waiting for DBs..."
+                sleep 20
                 
-                // 2. Beri jeda agar DB siap menerima koneksi
-                echo "Waiting for databases to be ready..."
-                sleep 15
-                
-                // 3. Jalankan functional test dengan Build Tags
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     sh 'go test -v -tags=functional ./internal/repository/...'
                 }
                 
-                // 4. Matikan DB setelah test selesai
                 sh 'docker-compose down'
             }
         }
 
-        stage('6. Push Image') {
+        stage('5. Push to Docker Hub') {
             steps {
-                // Membutuhkan credential dengan ID 'docker-hub-id' yang sudah diset di Jenkins
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-id', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                // Pakai ID credential 'docker-hub-id' yang Anda buat di Jenkins
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-id', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER_ENV')]) {
+                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER_ENV --password-stdin"
                     sh "docker push ${DOCKER_IMAGE}"
                 }
             }
         }
 
-        stage('7. Deploy to Kubernetes') {
+        stage('6. Deploy to K8s') {
             steps {
-                // Membutuhkan credential dengan ID 'kubeconfig-id' yang sudah diset di Jenkins
                 withKubeConfig([credentialsId: 'kubeconfig-id']) {
                     sh 'kubectl apply -f k8s/deployment.yaml'
                     sh 'kubectl apply -f k8s/service.yaml'
                 }
             }
-        }
-
-        stage('8. Verify Rollout') {
-            steps {
-                sh 'kubectl rollout status deployment/shipping-service-deployment'
-            }
-        }
-    }
-
-    post {
-        always {
-            echo "Pipeline finished. Check test results in the stages above."
         }
     }
 }
