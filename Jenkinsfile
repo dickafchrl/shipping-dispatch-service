@@ -27,7 +27,7 @@ pipeline {
                 // SELAMA kita tidak menambahkan '-tags=functional'
                 sh '''
                     docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                    -v $(pwd):/app -w /app golang:alpine \
+                    -v $(pwd):/app -w /app golang:1.25 \
                     sh -c "go test -v ./internal/service/... ./internal/handler/http/..."
                 '''
             }
@@ -51,7 +51,7 @@ pipeline {
                 sleep 20
                 
                 // Jalankan functional test di dalam container Go
-                sh 'docker run --rm --network host -v $(pwd):/app -w /app golang:alpine go test -v -tags=functional ./internal/repository/...'
+                sh 'docker run --rm --network host -v $(pwd):/app -w /app golang:1.25 go test -v -tags=functional ./internal/repository/...'
                 
                 sh 'docker-compose down'
             }

@@ -1,6 +1,6 @@
 module github.com/archera/shipping-service-ver2
 
-go 1.25.7
+go 1.25
 
 require (
 	github.com/golang/mock v1.6.0

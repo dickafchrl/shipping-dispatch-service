@@ -33,8 +33,17 @@ func NewDispatchService(
 
 // AutoDispatchPickUp
 // fungsi otomatis untuk mencari kurir terdekat/satu zona.
-func (s *dispatchService) AutoDispatchPickUp(ctx context.Context, orderID string, pickupZone string,) (*domain.Dispatch, error) {
-	return nil, ErrNotImplemented
+func (s *dispatchService) AutoDispatchPickUp(
+    ctx context.Context,
+    orderID string,
+    pickupZone string,
+) (*domain.Dispatch, error) {
+
+    if orderID == "" {
+        return nil, errors.New("order ID tidak boleh kosong")
+    }
+
+    return nil, ErrNotImplemented
 }
 
 // ConfirmPickUp 
