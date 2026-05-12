@@ -22,13 +22,15 @@ pipeline {
 
         stage('2. Unit Tests') {
             steps {
-                // Kita tidak memanggil 'go' di luar, semua di dalam kontainer.
-                // Kita gunakan './...' yang secara otomatis akan mengabaikan file dengan tag 'functional' 
-                // SELAMA kita tidak menambahkan '-tags=functional'
                 sh '''
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                    -v $(pwd):/app -w /app golang:1.25 \
-                    sh -c "go test -v ./internal/service/... ./internal/handler/http/..."
+                    docker run --rm \
+                    -v $(pwd):/app \
+                    -w /app \
+                    golang:1.25 \
+                    sh -c "
+                        go mod tidy &&
+                        go test -v ./...
+                    "
                 '''
             }
         }
