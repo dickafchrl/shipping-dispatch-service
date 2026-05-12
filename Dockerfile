@@ -1,7 +1,7 @@
 # ==========================================
 # STAGE 1: Builder (Untuk Kompilasi Kode)
 # ==========================================
-FROM golang:alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Set working directory di dalam container
 WORKDIR /app
