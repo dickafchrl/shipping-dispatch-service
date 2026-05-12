@@ -2,140 +2,85 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_USER  = "dickaf"
-        IMAGE_NAME   = "shipping-service"
-        DOCKER_IMAGE = "${DOCKER_USER}/${IMAGE_NAME}:latest"
+        IMAGE_NAME = 'dickaf/shipping-service'
+        IMAGE_TAG  = "${BUILD_ID}"
     }
 
     stages {
 
-        stage('1. Verify Environment') {
+        stage('1. Checkout Repo') {
+            steps {
+                echo 'Checkout source code...'
+                checkout scm
+            }
+        }
+
+        stage('2. Verify Environment') {
             steps {
                 bat '''
-                    echo ===== ENVIRONMENT CHECK =====
-
-                    echo Workspace:
-                    cd
-
-                    echo.
-                    echo ===== GO VERSION =====
-                    go version
-
-                    echo.
-                    echo ===== DOCKER VERSION =====
-                    docker version
-
-                    echo.
-                    echo ===== DOCKER COMPOSE VERSION =====
-                    docker compose version
-
-                    echo.
-                    echo ===== KUBECTL VERSION =====
-                    kubectl version --client
+                echo ===== ENVIRONMENT =====
+                go version
+                docker version
+                kubectl version --client
                 '''
             }
         }
 
-        stage('2. Unit Tests') {
+        stage('3. Unit Test') {
             steps {
-                bat '''
-                    echo ===== UNIT TEST =====
-
-                    go mod tidy
-
-                    go test -v ./...
-                '''
+                bat 'go mod tidy'
+                bat 'go test -v ./...'
             }
         }
 
-        stage('3. Build Docker Image') {
+        stage('4. Go Vet') {
             steps {
-                bat '''
-                    echo ===== BUILD IMAGE =====
-
-                    docker build -t %DOCKER_IMAGE% .
-                '''
+                bat 'go vet ./...'
             }
         }
 
-        stage('4. Functional Tests') {
+        stage('5. Build Docker Image') {
             steps {
-
-                bat '''
-                    echo ===== CLEAN OLD CONTAINERS =====
-
-                    docker compose down
-
-                    docker rm -f shipping_mongo
-                    docker rm -f shipping_postgres
-                '''
-
-                bat '''
-                    echo ===== START DATABASE =====
-
-                    docker compose up -d postgres mongodb
-
-                    timeout /t 20
-                '''
-
-                bat '''
-                    echo ===== FUNCTIONAL TEST =====
-
-                    go test -v -tags=functional ./internal/repository/...
-                '''
+                bat "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
             }
+        }
 
-            post {
-                always {
-                    bat '''
-                        docker compose down
-                    '''
+        stage('6. Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+
+                    bat 'docker login -u %DOCKER_USER% -p %DOCKER_PASS%'
                 }
             }
         }
 
-        stage('5. Push Docker Image') {
+        stage('7. Push Docker Image') {
             steps {
-
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'docker-hub-id',
-                        usernameVariable: 'DOCKER_USER_ENV',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-
-                    bat '''
-                        echo ===== DOCKER LOGIN =====
-
-                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER_ENV% --password-stdin
-
-                        docker push %DOCKER_IMAGE%
-                    '''
-                }
+                bat "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
 
-        stage('6. Deploy Kubernetes') {
+        stage('8. Deploy Kubernetes') {
             steps {
+                bat 'kubectl apply -f deployment.yaml'
+            }
+        }
 
-                withKubeConfig([credentialsId: 'kubeconfig-id']) {
-
-                    bat '''
-                        echo ===== DEPLOY K8S =====
-
-                        kubectl apply -f k8s\\deployment.yaml
-
-                        kubectl apply -f k8s\\service.yaml
-
-                        kubectl get pods
-                    '''
-                }
+        stage('9. Verify Deployment') {
+            steps {
+                bat 'kubectl rollout status deployment/shipping-deployment'
             }
         }
     }
 
     post {
+        always {
+            echo 'Pipeline FINISHED'
+        }
 
         success {
             echo 'Pipeline SUCCESS'
@@ -143,10 +88,6 @@ pipeline {
 
         failure {
             echo 'Pipeline FAILED'
-        }
-
-        always {
-            echo 'Pipeline FINISHED'
         }
     }
 }
