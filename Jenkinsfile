@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // SESUAIKAN dengan username Docker Hub yang baru saja Anda buat
         DOCKER_USER = "dickaf" 
         IMAGE_NAME = "shipping-service"
         DOCKER_IMAGE = "${DOCKER_USER}/${IMAGE_NAME}:latest"
@@ -11,17 +10,20 @@ pipeline {
     stages {
         stage('1. Setup Workspace') {
             steps {
-                // Memastikan docker-compose tersedia di dalam container Jenkins
-                sh 'docker-compose --version || (curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose)'
+                // Pastikan folder bin ada dan docker-compose terinstall permanen di container jenkins
+                sh '''
+                    if ! command -v docker-compose &> /dev/null; then
+                        curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+                        chmod +x /usr/local/bin/docker-compose
+                    fi
+                '''
             }
         }
 
         stage('2. Unit Tests') {
             steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                    // Kita asumsikan image golang sudah terpasang atau gunakan container agent
-                    sh 'go test -v ./internal/service/... ./internal/handler/http/...'
-                }
+                // Kita gunakan image golang:alpine untuk running test agar tidak butuh install go di jenkins
+                sh 'docker run --rm -v $(pwd):/app -w /app golang:alpine go test -v ./internal/service/... ./internal/handler/http/...'
             }
         }
 
@@ -33,13 +35,17 @@ pipeline {
 
         stage('4. Functional Tests') {
             steps {
+                // Bersihkan container lama yang namanya bentrok
+                sh 'docker-compose down || true'
+                sh 'docker rm -f shipping_mongo shipping_postgres || true'
+                
+                // Jalankan DB baru
                 sh 'docker-compose up -d postgres mongodb'
                 echo "Waiting for DBs..."
                 sleep 20
                 
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                    sh 'go test -v -tags=functional ./internal/repository/...'
-                }
+                // Jalankan functional test di dalam container Go
+                sh 'docker run --rm --network host -v $(pwd):/app -w /app golang:alpine go test -v -tags=functional ./internal/repository/...'
                 
                 sh 'docker-compose down'
             }
@@ -47,7 +53,6 @@ pipeline {
 
         stage('5. Push to Docker Hub') {
             steps {
-                // Pakai ID credential 'docker-hub-id' yang Anda buat di Jenkins
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-id', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER_ENV')]) {
                     sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER_ENV --password-stdin"
                     sh "docker push ${DOCKER_IMAGE}"
