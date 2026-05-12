@@ -67,12 +67,17 @@ pipeline {
         stage('8. Deploy Kubernetes') {
             steps {
                 bat 'kubectl apply -f deployment.yaml'
+
+                bat """
+                kubectl set image deployment/shipping-service-deployment ^
+                shipping-service=${IMAGE_NAME}:${IMAGE_TAG}
+                """
             }
         }
 
         stage('9. Verify Deployment') {
             steps {
-                bat 'kubectl rollout status deployment/shipping-deployment'
+                bat 'kubectl rollout status deployment/shipping-service-deployment'
             }
         }
     }
