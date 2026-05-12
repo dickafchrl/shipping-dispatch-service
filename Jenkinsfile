@@ -66,7 +66,8 @@ pipeline {
 
         stage('8. Deploy Kubernetes') {
             steps {
-                bat 'kubectl apply -f deployment.yaml'
+                bat 'kubectl apply -f k8s/deployment.yaml'
+                bat 'kubectl apply -f k8s/service.yaml'
 
                 bat """
                 kubectl set image deployment/shipping-service-deployment ^
