@@ -22,8 +22,14 @@ pipeline {
 
         stage('2. Unit Tests') {
             steps {
-                // Kita gunakan image golang:alpine untuk running test agar tidak butuh install go di jenkins
-                sh 'docker run --rm -v $(pwd):/app -w /app golang:alpine go test -v $(go list ./... | grep -v functional)'
+                // Kita tidak memanggil 'go' di luar, semua di dalam kontainer.
+                // Kita gunakan './...' yang secara otomatis akan mengabaikan file dengan tag 'functional' 
+                // SELAMA kita tidak menambahkan '-tags=functional'
+                sh '''
+                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                    -v $(pwd):/app -w /app golang:alpine \
+                    sh -c "go test -v ./internal/service/... ./internal/handler/http/..."
+                '''
             }
         }
 
