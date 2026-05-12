@@ -9,80 +9,51 @@ pipeline {
 
     stages {
 
-        stage('1. Setup Workspace') {
+        stage('1. Verify Environment') {
             steps {
-                sh '''
-                    set -e
+                bat '''
+                    echo ===== ENVIRONMENT CHECK =====
 
-                    echo "===== WORKSPACE INFO ====="
-                    echo "WORKSPACE: $WORKSPACE"
+                    echo Workspace:
+                    cd
 
-                    pwd
-                    ls -la
+                    echo.
+                    echo ===== GO VERSION =====
+                    go version
 
-                    echo "===== INSTALL DOCKER COMPOSE ====="
+                    echo.
+                    echo ===== DOCKER VERSION =====
+                    docker version
 
-                    if ! command -v docker-compose > /dev/null 2>&1; then
-                        curl -L \
-                        "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" \
-                        -o /usr/local/bin/docker-compose
+                    echo.
+                    echo ===== DOCKER COMPOSE VERSION =====
+                    docker compose version
 
-                        chmod +x /usr/local/bin/docker-compose
-                    fi
-
-                    docker-compose version
+                    echo.
+                    echo ===== KUBECTL VERSION =====
+                    kubectl version --client
                 '''
             }
         }
 
         stage('2. Unit Tests') {
             steps {
-                sh '''
-                    set -e
+                bat '''
+                    echo ===== UNIT TEST =====
 
-                    echo "===== UNIT TEST STAGE ====="
+                    go mod tidy
 
-                    echo "HOST WORKSPACE:"
-                    pwd
-                    ls -la
-                    find . -name go.mod
-
-                    docker run --rm \
-                        -v $WORKSPACE:/app \
-                        -w /app \
-                        golang:1.25 \
-                        sh -c "
-                            set -e
-
-                            echo '===== CONTAINER WORKSPACE ====='
-
-                            pwd
-                            ls -la
-                            find . -name go.mod
-
-                            if [ ! -f go.mod ]; then
-                                echo 'ERROR: go.mod not found'
-                                exit 1
-                            fi
-
-                            go version
-
-                            go mod tidy
-
-                            go test -v ./...
-                        "
+                    go test -v ./...
                 '''
             }
         }
 
-        stage('3. Build Image') {
+        stage('3. Build Docker Image') {
             steps {
-                sh '''
-                    set -e
+                bat '''
+                    echo ===== BUILD IMAGE =====
 
-                    echo "===== BUILD IMAGE ====="
-
-                    docker build -t ${DOCKER_IMAGE} .
+                    docker build -t %DOCKER_IMAGE% .
                 '''
             }
         }
@@ -90,98 +61,72 @@ pipeline {
         stage('4. Functional Tests') {
             steps {
 
-                sh '''
-                    set -e
+                bat '''
+                    echo ===== CLEAN OLD CONTAINERS =====
 
-                    echo "===== CLEAN OLD CONTAINERS ====="
+                    docker compose down
 
-                    docker-compose down || true
-
-                    docker rm -f shipping_mongo shipping_postgres || true
+                    docker rm -f shipping_mongo
+                    docker rm -f shipping_postgres
                 '''
 
-                sh '''
-                    set -e
+                bat '''
+                    echo ===== START DATABASE =====
 
-                    echo "===== START DATABASE ====="
+                    docker compose up -d postgres mongodb
 
-                    docker-compose up -d postgres mongodb
-
-                    echo "Waiting database startup..."
-                    sleep 20
-
-                    docker ps
+                    timeout /t 20
                 '''
 
-                sh '''
-                    set -e
+                bat '''
+                    echo ===== FUNCTIONAL TEST =====
 
-                    echo "===== FUNCTIONAL TEST ====="
-
-                    docker run --rm \
-                        --network host \
-                        -v $WORKSPACE:/app \
-                        -w /app \
-                        golang:1.25 \
-                        sh -c "
-                            set -e
-
-                            if [ ! -f go.mod ]; then
-                                echo 'ERROR: go.mod not found'
-                                exit 1
-                            fi
-
-                            go mod tidy
-
-                            go test -v -tags=functional ./internal/repository/...
-                        "
+                    go test -v -tags=functional ./internal/repository/...
                 '''
             }
 
             post {
                 always {
-                    sh '''
-                        docker-compose down || true
+                    bat '''
+                        docker compose down
                     '''
                 }
             }
         }
 
-        stage('5. Push to Docker Hub') {
+        stage('5. Push Docker Image') {
             steps {
+
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'docker-hub-id',
-                        passwordVariable: 'DOCKER_PASS',
-                        usernameVariable: 'DOCKER_USER_ENV'
+                        usernameVariable: 'DOCKER_USER_ENV',
+                        passwordVariable: 'DOCKER_PASS'
                     )
                 ]) {
 
-                    sh '''
-                        set -e
+                    bat '''
+                        echo ===== DOCKER LOGIN =====
 
-                        echo "$DOCKER_PASS" | docker login \
-                            -u "$DOCKER_USER_ENV" \
-                            --password-stdin
+                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER_ENV% --password-stdin
 
-                        docker push ${DOCKER_IMAGE}
+                        docker push %DOCKER_IMAGE%
                     '''
                 }
             }
         }
 
-        stage('6. Deploy to K8s') {
+        stage('6. Deploy Kubernetes') {
             steps {
+
                 withKubeConfig([credentialsId: 'kubeconfig-id']) {
 
-                    sh '''
-                        set -e
+                    bat '''
+                        echo ===== DEPLOY K8S =====
 
-                        echo "===== DEPLOY TO K8S ====="
+                        kubectl apply -f k8s\\deployment.yaml
 
-                        kubectl apply -f k8s/deployment.yaml
-
-                        kubectl apply -f k8s/service.yaml
+                        kubectl apply -f k8s\\service.yaml
 
                         kubectl get pods
                     '''
@@ -191,16 +136,17 @@ pipeline {
     }
 
     post {
-        always {
-            echo 'Pipeline finished.'
-        }
 
         success {
-            echo 'Pipeline SUCCESS.'
+            echo 'Pipeline SUCCESS'
         }
 
         failure {
-            echo 'Pipeline FAILED.'
+            echo 'Pipeline FAILED'
+        }
+
+        always {
+            echo 'Pipeline FINISHED'
         }
     }
 }
